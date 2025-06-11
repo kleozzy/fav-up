@@ -41,7 +41,11 @@ class FavUp(object):
         self.faviconsList = []
 
         self.current_work_dir = os.getcwd()
-        self.ua = UserAgent(fallback=self.FALLBACK_UA)
+        try:
+            self.ua = UserAgent(fallback=self.FALLBACK_UA)
+        except FakeUserAgentError:
+            from collections import namedtuple
+            self.ua = namedtuple("ua", ["random"])(self.FALLBACK_UA)
 
         self.output = ""
         self._output = None
@@ -85,15 +89,15 @@ class FavUp(object):
             self._iterator = tqdm(total=len(self.fileList)+len(self.urlList)+len(self.webList))
 
             if self.output:
+                out_type = self.output.rsplit(".", 1)[-1] if "." in self.output else "txt"
                 self._output = {
-                    "type": self.output.split(".")[1],
-                    "file": open(self.output, "w")
+                    "type": out_type.lower(),                       # csv / json / txt
+                    "file": open(self.output, "w", encoding="utf-8")  # keep it OPEN
                 }
+            else:
+                import sys
+                self._output = { "type": "txt", "file": sys.stdout }  # fallback to console
 
-            if self.output:
-                self._output["file"].close()
-
-    
     def _argsCheck(self, args):
         if not (args.key_file or args.key or args.shodan_cli):
             print("[x] Please specify the key with --key, --key-file or --shodan-cli.")
@@ -167,7 +171,7 @@ class FavUp(object):
                 _fH = self.faviconHash(data)
                 self.faviconsList.append({
                     "favhash": _fH,
-                    "url": self.faviconURL,
+                    "url": fav,
                     "domain": fav,
                     "maskIP": _dcL["mIP"],
                     "maskISP": _dcL["mISP"],
@@ -215,7 +219,7 @@ class FavUp(object):
 
         self._iterator.reset(total=len(self.faviconsList))
         for _fObject in self.faviconsList:
-            self._iterator.set_description(f"[+] lookup for {_fObject["favhash"]}")
+            self._iterator.set_description(f"[+] lookup for {_fObject['favhash']}")
             self._iterator.update(1)
             try:
                 _ = _alreadyScanned[_fObject["favhash"]]
@@ -229,13 +233,13 @@ class FavUp(object):
             
             if self.show:
                 self._iterator.write("-"*25)
-                self._iterator.write(f"[{_fObject["_origin"]}]")
+                self._iterator.write(f"[{_fObject['_origin']}]")
                 del _fObject["_origin"]
                 for _atr in _fObject:
                     self._iterator.write(f"--> {_atr:<10} :: {_fObject[_atr]}")
             
             if self.output:
-                _tcObj = _cObj
+                _tcObj = _cObj.copy()
                 _tcObj.update(_fObject)
                 _t = self._output["type"]
                 if _t.lower() == "csv":
@@ -246,6 +250,8 @@ class FavUp(object):
                     self._iterator.write("[x] Output format not supported, closing.")
                     exit(1)
         self._iterator.close()
+        if self.output:
+            self._output["file"].close()
     
     def faviconHash(self, data, web_source=None):
         if web_source:
